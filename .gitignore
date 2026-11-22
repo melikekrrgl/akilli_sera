@@ -1,0 +1,11 @@
+# Gizli bilgiler (WiFi şifresi, broker şifresi)
+secrets.h
+
+# Sistem / araç dosyaları
+.DS_Store
+.claude/
+__pycache__/
+build/
+
+# Kullanılmayan lazer kesim çalışması (projeden çıkarıldı)
+sera_lazer/

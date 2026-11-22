@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Akıllı Sera</title>
+<meta name="description" content="Akıllı Sera - MQTT ile uzaktan izleme ve kontrol paneli">
+<meta name="theme-color" content="#1f7a4d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Akıllı Sera">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8C%B1%3C/text%3E%3C/svg%3E">
+<script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<style>
+  :root {
+    --bg: #f3f6f2; --card: #ffffff; --text: #17211b; --muted: #66756b; --line: #e2e8e1;
+    --brand: #1f7a4d; --brand-soft: #e3f2e9; --warn: #b7791f; --warn-soft: #fdf3e1;
+    --danger: #c0392b; --danger-soft: #fbe9e7; --blue: #2b6cb0; --blue-soft: #e6f0fa;
+    --shadow: 0 1px 2px rgba(0,0,0,.05), 0 4px 16px rgba(0,0,0,.04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1512; --card: #18211c; --text: #e8efe9; --muted: #93a398; --line: #26322b;
+      --brand: #3fb97a; --brand-soft: #1c3427; --warn: #e3a94a; --warn-soft: #3a2f1b;
+      --danger: #ef6b5b; --danger-soft: #3d1f1b; --blue: #6aa8e8; --blue-soft: #1b2a3a;
+      --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header { background: var(--brand); color: #fff; padding: calc(14px + env(safe-area-inset-top)) 16px 14px;
+    position: sticky; top: 0; z-index: 5; }
+  header .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; max-width: 760px; margin: 0 auto; }
+  h1 { margin: 0; font-size: 19px; font-weight: 650; }
+  .pills { display: flex; gap: 6px; flex-wrap: wrap; }
+  .pill { font-size: 12px; padding: 3px 9px; border-radius: 99px; background: rgba(255,255,255,.18); white-space: nowrap; }
+  .pill::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    background: #ffb4a8; margin-right: 5px; vertical-align: 1px; }
+  .pill.on::before { background: #9ff0c0; }
+  main { max-width: 760px; margin: 0 auto; padding: 14px 16px 40px; display: grid; gap: 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; box-shadow: var(--shadow); }
+  .card h2 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  @media (min-width: 620px) { .grid { grid-template-columns: repeat(3, 1fr); } }
+  .metric { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px; box-shadow: var(--shadow); }
+  .metric .label { color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 6px; }
+  .metric .value { font-size: 28px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .metric .value small { font-size: 15px; color: var(--muted); font-weight: 500; margin-left: 2px; }
+  .bar { height: 6px; background: var(--line); border-radius: 99px; overflow: hidden; margin-top: 8px; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--brand); border-radius: 99px; transition: width .4s; }
+  .metric.alert { border-color: var(--danger); background: var(--danger-soft); }
+  .metric.alert .bar > i { background: var(--danger); }
+  .ctl { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .ctl:first-of-type { border-top: 0; padding-top: 0; }
+  .ctl .name { font-weight: 600; }
+  .ctl .sub { font-size: 13px; color: var(--muted); }
+  .seg { display: inline-flex; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
+  .seg button { border: 0; background: transparent; color: var(--muted); padding: 7px 14px; border-radius: 8px; font: inherit; font-weight: 600; cursor: pointer; }
+  .seg button.active { background: var(--brand); color: #fff; }
+  .switch { position: relative; width: 54px; height: 32px; flex: none; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch span { position: absolute; inset: 0; background: var(--line); border-radius: 99px; transition: .2s; cursor: pointer; }
+  .switch span::after { content: ""; position: absolute; width: 26px; height: 26px; left: 3px; top: 3px; background: #fff; border-radius: 50%;
+    transition: .2s; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+  .switch input:checked + span { background: var(--brand); }
+  .switch input:checked + span::after { transform: translateX(22px); }
+  .switch input:disabled + span { opacity: .5; cursor: not-allowed; }
+  input[type=range] { width: 100%; accent-color: var(--brand); }
+  .note { font-size: 13px; color: var(--muted); margin: 8px 0 0; }
+  .banner { border-radius: 12px; padding: 10px 12px; font-size: 14px; display: none; }
+  .banner.show { display: block; }
+  .banner.warn { background: var(--warn-soft); color: var(--warn); }
+  .banner.danger { background: var(--danger-soft); color: var(--danger); }
+  .cam { position: relative; background: var(--bg); border-radius: 10px; overflow: hidden; aspect-ratio: 4 / 3;
+    display: grid; place-items: center; color: var(--muted); font-size: 14px; text-align: center; padding: 0; }
+  .cam img { width: 100%; height: 100%; object-fit: cover; display: none; }
+  .cam.has img { display: block; }
+  .cam.has .empty { display: none; }
+  .btns { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .btn { border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 10px; padding: 9px 14px; font: inherit; font-weight: 600; cursor: pointer; }
+  .btn.primary { background: var(--brand); border-color: var(--brand); color: #fff; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .form label { font-size: 13px; color: var(--muted); display: grid; gap: 4px; align-content: space-between; }
+  .form input { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; width: 100%; }
+  .form .full { grid-column: 1 / -1; }
+  canvas { width: 100%; height: 170px; display: block; }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin-top: 6px; flex-wrap: wrap; }
+  .legend i { display: inline-block; width: 10px; height: 3px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+  .events { list-style: none; margin: 0; padding: 0; font-size: 14px; }
+  .events li { padding: 7px 0; border-top: 1px solid var(--line); display: flex; gap: 8px; }
+  .events li:first-child { border-top: 0; }
+  .events time { color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
+  .events .alarm { color: var(--danger); font-weight: 600; }
+  .events .warn { color: var(--warn); }
+  details summary { cursor: pointer; font-weight: 600; }
+  .foot { text-align: center; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <div class="row">
+    <h1>🌱 Akıllı Sera</h1>
+    <div class="pills">
+      <span class="pill" id="pCloud">Bulut</span>
+      <span class="pill" id="pDev">Sera</span>
+      <span class="pill" id="pCam">Kamera</span>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="banner warn" id="bConn">Buluta bağlanılıyor…</div>
+  <div class="banner danger" id="bWater">💧 Su deposu boşalmak üzere! Pompa güvenlik için durduruldu.</div>
+
+  <section class="grid" aria-label="Sensörler">
+    <div class="metric" id="mT"><div class="label">🌡️ Sıcaklık</div><div class="value"><span id="vT">--</span><small>°C</small></div></div>
+    <div class="metric" id="mH"><div class="label">💧 Hava nemi</div><div class="value"><span id="vH">--</span><small>%</small></div></div>
+    <div class="metric" id="mSoil"><div class="label">🪴 Toprak nemi</div><div class="value"><span id="vSoil">--</span><small>%</small></div><div class="bar"><i id="bSoil"></i></div></div>
+    <div class="metric"><div class="label">☀️ Işık</div><div class="value"><span id="vLux">--</span><small>lux</small></div></div>
+    <div class="metric" id="mWater"><div class="label">🚰 Su deposu</div><div class="value"><span id="vWater">--</span><small>%</small></div><div class="bar"><i id="bWaterBar"></i></div></div>
+    <div class="metric"><div class="label">🕒 Son veri</div><div class="value" style="font-size:20px;padding-top:6px"><span id="vAge">—</span></div></div>
+  </section>
+
+  <section class="card">
+    <h2>Kontrol</h2>
+    <div class="ctl">
+      <div><div class="name">Çalışma modu</div><div class="sub" id="modeSub">Otomatikte sera kendi karar verir</div></div>
+      <div class="seg" role="group" aria-label="Mod">
+        <button id="btnAuto">Otomatik</button><button id="btnManual">Elle</button>
+      </div>
+    </div>
+    <div class="ctl">
+      <div><div class="name">Su pompası</div><div class="sub" id="pumpSub">Kapalı</div></div>
+      <label class="switch"><input type="checkbox" id="swPump" aria-label="Su pompası"><span></span></label>
+    </div>
+    <div class="ctl">
+      <div><div class="name">Havalandırma fanı</div><div class="sub" id="fanSub">Kapalı</div></div>
+      <label class="switch"><input type="checkbox" id="swFan" aria-label="Fan"><span></span></label>
+    </div>
+    <div class="ctl" style="display:block">
+      <div style="display:flex;justify-content:space-between"><span class="name">Fan hızı</span><span id="fanSpeedV" class="sub">100%</span></div>
+      <input type="range" id="fanSpeed" min="20" max="100" step="10" value="100" aria-label="Fan hızı">
+    </div>
+    <p class="note">Pompa veya fanı elle açıp kapatınca sistem <b>Elle</b> moduna geçer. Güvenlik için pompa en fazla birkaç saniye çalışır.</p>
+  </section>
+
+  <section class="card">
+    <h2>Kamera</h2>
+    <div class="cam" id="cam"><img id="camImg" alt="Seradan son fotoğraf"><div class="empty">Henüz fotoğraf yok.<br>Kamera açıkken “Fotoğraf çek”e basın.</div></div>
+    <div class="btns">
+      <button class="btn primary" id="btnShot">📷 Fotoğraf çek</button>
+      <button class="btn" id="btnFlash">⚡ Flaşlı çek</button>
+      <span class="note" id="camTime" style="margin:auto 0"></span>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Son 10 dakika</h2>
+    <canvas id="chart" aria-label="Sıcaklık, nem ve toprak nemi grafiği"></canvas>
+    <div class="legend"><span><i style="background:#e0703b"></i>Sıcaklık (°C)</span><span><i style="background:#3b82c4"></i>Hava nemi (%)</span><span><i style="background:#2f9e5e"></i>Toprak nemi (%)</span></div>
+  </section>
+
+  <section class="card">
+    <h2>Otomatik kontrol ayarları</h2>
+    <div class="form">
+      <label>Fan açılma sıcaklığı (°C)<input type="number" id="cTMax" min="0" max="60" step="0.5"></label>
+      <label>Fan açılma nemi (%)<input type="number" id="cHMax" min="0" max="100"></label>
+      <label>Sulama eşiği, toprak (%)<input type="number" id="cSoil" min="0" max="100"></label>
+      <label>Sulama süresi (sn)<input type="number" id="cPump" min="1" max="30"></label>
+      <label>Sulama arası bekleme (sn)<input type="number" id="cSoak" min="5" max="600"></label>
+      <label>Elle pompa en fazla (sn)<input type="number" id="cPumpMax" min="1" max="60"></label>
+    </div>
+    <div class="btns"><button class="btn primary" id="btnSave">Ayarları gönder</button></div>
+  </section>
+
+  <section class="card">
+    <h2>Olaylar</h2>
+    <ul class="events" id="events"><li><span class="note">Henüz olay yok.</span></li></ul>
+  </section>
+
+  <section class="card">
+    <details id="setDetails">
+      <summary>Bağlantı ayarları</summary>
+      <div class="form" style="margin-top:12px">
+        <label class="full">Broker adresi (WebSocket)<input id="sUrl" placeholder="wss://broker.hivemq.com:8884/mqtt"></label>
+        <label>Kullanıcı adı<input id="sUser" autocomplete="username"></label>
+        <label>Şifre<input id="sPass" type="password" autocomplete="current-password"></label>
+        <label class="full">Cihaz kimliği (ESP32 kodundaki DEVICE_ID)<input id="sId" placeholder="sera-demo-4821"></label>
+      </div>
+      <div class="btns"><button class="btn primary" id="btnConnect">Kaydet ve bağlan</button></div>
+      <p class="note">Bu bilgiler sadece bu telefonda saklanır.</p>
+    </details>
+  </section>
+
+  <p class="foot">MQTT konusu: <code id="topicInfo"></code></p>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const DEFAULTS = { url: 'wss://broker.hivemq.com:8884/mqtt', user: '', pass: '', id: 'sera-demo-4821' };
+
+function loadSettings() {
+  let s = { ...DEFAULTS };
+  try { Object.assign(s, JSON.parse(localStorage.getItem('sera-settings') || '{}')); } catch (e) {}
+  const q = new URLSearchParams(location.search);
+  if (q.get('id')) s.id = q.get('id');
+  if (q.get('broker')) s.url = q.get('broker');
+  return s;
+}
+let S = loadSettings();
+let client = null, base = '';
+let lastTele = 0, devOnline = false, state = {}, cfg = {};
+const hist = [];  // {ts,t,h,soil}
+
+// ---------------- MQTT ----------------
+function connect() {
+  if (client) { client.end(true); client = null; }
+  base = 'akillisera/' + S.id;
+  $('topicInfo').textContent = base + '/#';
+  setPill('pCloud', false); setPill('pDev', false); setPill('pCam', false);
+  showBanner('bConn', true, 'Buluta bağlanılıyor…');
+  client = mqtt.connect(S.url, {
+    clientId: 'sera-panel-' + Math.random().toString(16).slice(2, 10),
+    username: S.user || undefined, password: S.pass || undefined,
+    reconnectPeriod: 3000, connectTimeout: 10000, clean: true
+  });
+  client.on('connect', () => {
+    setPill('pCloud', true);
+    showBanner('bConn', false);
+    client.subscribe(base + '/#', { qos: 1 });
+  });
+  client.on('reconnect', () => { setPill('pCloud', false); showBanner('bConn', true, 'Bağlantı koptu, yeniden deneniyor…'); });
+  client.on('offline', () => setPill('pCloud', false));
+  client.on('error', err => showBanner('bConn', true, 'Bağlantı hatası: ' + (err.message || err)));
+  client.on('message', onMessage);
+}
+
+function send(obj, sub = '/cmd') {
+  if (!client || !client.connected) { alert('Buluta bağlı değil.'); return; }
+  client.publish(base + sub, typeof obj === 'string' ? obj : JSON.stringify(obj), { qos: 1 });
+}
+
+function onMessage(topic, payload) {
+  const t = topic.slice(base.length);
+  if (t === '/cam/image') return showImage(payload);
+  const text = new TextDecoder().decode(payload);
+  if (t === '/status') { devOnline = text === 'online'; setPill('pDev', devOnline); return; }
+  if (t === '/cam/status') { setPill('pCam', text === 'online'); return; }
+  let d; try { d = JSON.parse(text); } catch (e) { return; }
+  if (t === '/telemetry') onTelemetry(d);
+  else if (t === '/config') onConfig(d);
+  else if (t === '/event') addEvent(d);
+}
+
+// ---------------- Arayüz ----------------
+function setPill(id, on) { $(id).classList.toggle('on', on); }
+function showBanner(id, show, text) { const b = $(id); b.classList.toggle('show', show); if (text) b.textContent = text; }
+const fmt = (v, d = 0) => (v === undefined || v === null) ? '--' : Number(v).toFixed(d);
+
+function onTelemetry(d) {
+  state = d; lastTele = Date.now();
+  devOnline = true; setPill('pDev', true);
+  $('vT').textContent = fmt(d.t, 1);
+  $('vH').textContent = fmt(d.h);
+  $('vSoil').textContent = fmt(d.soil); $('bSoil').style.width = (d.soil || 0) + '%';
+  $('vLux').textContent = fmt(d.lux);
+  $('vWater').textContent = fmt(d.water); $('bWaterBar').style.width = (d.water || 0) + '%';
+  $('mWater').classList.toggle('alert', !!d.waterLow);
+  $('mSoil').classList.toggle('alert', cfg.soilMin !== undefined && d.soil < cfg.soilMin);
+  $('mT').classList.toggle('alert', cfg.tMax !== undefined && d.t > cfg.tMax + 5);
+  showBanner('bWater', !!d.waterLow);
+  $('swPump').checked = !!d.pump;
+  $('swFan').checked = !!d.fan;
+  $('pumpSub').textContent = d.pump ? 'Çalışıyor 💦' : (d.waterLow ? 'Depoda su yok' : 'Kapalı');
+  $('fanSub').textContent = d.fan ? `Çalışıyor (%${d.fanSpeed})` : 'Kapalı';
+  setMode(d.mode);
+  if (document.activeElement !== $('fanSpeed')) { $('fanSpeed').value = d.fanSpeed; $('fanSpeedV').textContent = d.fanSpeed + '%'; }
+  if (d.t !== undefined) {
+    hist.push({ ts: Date.now(), t: d.t, h: d.h, soil: d.soil });
+    while (hist.length && Date.now() - hist[0].ts > 10 * 60 * 1000) hist.shift();
+    drawChart();
+  }
+  tickAge();
+}
+
+function setMode(m) {
+  $('btnAuto').classList.toggle('active', m === 'auto');
+  $('btnManual').classList.toggle('active', m === 'manual');
+  $('modeSub').textContent = m === 'auto' ? 'Sera sensörlere göre kendi karar veriyor' : 'Pompa ve fanı siz yönetiyorsunuz';
+}
+
+function onConfig(c) {
+  cfg = c;
+  const set = (id, v) => { if (document.activeElement !== $(id) && v !== undefined) $(id).value = v; };
+  set('cTMax', c.tMax); set('cHMax', c.hMax); set('cSoil', c.soilMin);
+  set('cPump', c.pumpSec); set('cSoak', c.soakSec); set('cPumpMax', c.pumpMaxSec);
+  if (c.mode) setMode(c.mode);
+}
+
+let imgUrl = null;
+function showImage(bytes) {
+  if (!bytes || !bytes.length) return;
+  if (imgUrl) URL.revokeObjectURL(imgUrl);
+  imgUrl = URL.createObjectURL(new Blob([bytes], { type: 'image/jpeg' }));
+  $('camImg').src = imgUrl;
+  $('cam').classList.add('has');
+  $('camTime').textContent = 'Son fotoğraf: ' + new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) + ` (${Math.round(bytes.length / 1024)} KB)`;
+}
+
+const events = [];
+function addEvent(d) {
+  events.unshift({ time: new Date(), ...d });
+  events.length = Math.min(events.length, 10);
+  $('events').innerHTML = events.map(e =>
+    `<li><time>${e.time.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time>` +
+    `<span class="${e.level}">${String(e.msg).replace(/</g, '&lt;')}</span></li>`).join('');
+}
+
+function tickAge() {
+  if (!lastTele) { $('vAge').textContent = '—'; return; }
+  const s = Math.round((Date.now() - lastTele) / 1000);
+  $('vAge').textContent = s < 5 ? 'şimdi' : s < 60 ? s + ' sn önce' : Math.round(s / 60) + ' dk önce';
+  if (s > 20) setPill('pDev', false);
+}
+setInterval(tickAge, 1000);
+
+// ---------------- Grafik (kütüphanesiz) ----------------
+function drawChart() {
+  const c = $('chart'), dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth, h = c.clientHeight;
+  c.width = w * dpr; c.height = h * dpr;
+  const g = c.getContext('2d'); g.scale(dpr, dpr); g.clearRect(0, 0, w, h);
+  const css = getComputedStyle(document.documentElement);
+  const pad = { l: 28, r: 6, t: 8, b: 18 };
+  g.strokeStyle = css.getPropertyValue('--line'); g.fillStyle = css.getPropertyValue('--muted');
+  g.font = '11px sans-serif'; g.lineWidth = 1;
+  for (const v of [0, 25, 50, 75, 100]) {
+    const y = pad.t + (h - pad.t - pad.b) * (1 - v / 100);
+    g.beginPath(); g.moveTo(pad.l, y); g.lineTo(w - pad.r, y); g.stroke();
+    g.fillText(v, 2, y + 4);
+  }
+  if (hist.length < 2) { g.fillText('Veri bekleniyor…', pad.l + 8, h / 2); return; }
+  const t0 = Date.now() - 10 * 60 * 1000;
+  const X = ts => pad.l + (w - pad.l - pad.r) * Math.max(0, (ts - t0) / (10 * 60 * 1000));
+  const Y = v => pad.t + (h - pad.t - pad.b) * (1 - Math.max(0, Math.min(100, v)) / 100);
+  for (const [key, color] of [['t', '#e0703b'], ['h', '#3b82c4'], ['soil', '#2f9e5e']]) {
+    g.strokeStyle = color; g.lineWidth = 2; g.beginPath();
+    hist.forEach((p, i) => { if (p[key] === undefined) return; i ? g.lineTo(X(p.ts), Y(p[key])) : g.moveTo(X(p.ts), Y(p[key])); });
+    g.stroke();
+  }
+  g.fillStyle = css.getPropertyValue('--muted');
+  g.fillText('10 dk önce', pad.l, h - 3); g.fillText('şimdi', w - pad.r - 30, h - 3);
+}
+window.addEventListener('resize', drawChart);
+
+// ---------------- Olaylar ----------------
+$('btnAuto').onclick = () => send({ mode: 'auto' });
+$('btnManual').onclick = () => send({ mode: 'manual' });
+$('swPump').onchange = e => send({ pump: e.target.checked });
+$('swFan').onchange = e => send({ fan: e.target.checked });
+$('fanSpeed').oninput = e => $('fanSpeedV').textContent = e.target.value + '%';
+$('fanSpeed').onchange = e => send({ fanSpeed: Number(e.target.value) });
+$('btnShot').onclick = () => send('capture', '/cam/cmd');
+$('btnFlash').onclick = () => send('flash', '/cam/cmd');
+$('btnSave').onclick = () => send({ config: {
+  tMax: Number($('cTMax').value), hMax: Number($('cHMax').value), soilMin: Number($('cSoil').value),
+  pumpSec: Number($('cPump').value), soakSec: Number($('cSoak').value), pumpMaxSec: Number($('cPumpMax').value)
+} });
+$('btnConnect').onclick = () => {
+  S = { url: $('sUrl').value.trim() || DEFAULTS.url, user: $('sUser').value.trim(), pass: $('sPass').value, id: $('sId').value.trim() || DEFAULTS.id };
+  try { localStorage.setItem('sera-settings', JSON.stringify(S)); } catch (e) {}
+  hist.length = 0; lastTele = 0; drawChart();
+  $('setDetails').open = false;
+  connect();
+};
+$('sUrl').value = S.url; $('sUser').value = S.user; $('sPass').value = S.pass; $('sId').value = S.id;
+
+drawChart();
+connect();
+</script>
+</body>
+</html>
